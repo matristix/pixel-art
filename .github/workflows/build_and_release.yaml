@@ -1,129 +1,60 @@
-name: Build and release Aseprite (Linux Beta Only)
+name: Build Aseprite Latest BETA (Linux Only)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'BuildLog.md'
   workflow_dispatch:
 
-env:
-  BUILD_TYPE: Release
-
 jobs:
-  fetch-aseprite-info:
-    name: Fetch BETA release info
-    runs-on: ubuntu-latest
-    outputs:
-      download-link: ${{ steps.aseprite-link.outputs.download-link }}
-      release-tag: ${{ steps.aseprite-link.outputs.release-tag }}
-    steps:
-      - name: Fetch latest Aseprite BETA source release
-        id: aseprite-link
-        uses: a1393323447/fetch-release@main
-        with:
-          group: aseprite
-          repo: aseprite
-          # RegExp — match ONLY beta source releases
-          match: 'Aseprite-.*beta.*-Source\.zip'
-
-  create-release:
-    name: Create Release (Beta)
-    runs-on: ubuntu-latest
-    needs: fetch-aseprite-info
-    permissions:
-      contents: write
-    outputs:
-      download-link: ${{ needs.fetch-aseprite-info.outputs.download-link }}
-      release-tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
-          body: "Aseprite Beta Build — ${{ needs.fetch-aseprite-info.outputs.release-tag }}"
-          skipIfReleaseExists: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  build-aseprite:
-    name: Build Aseprite (Linux only)
-    needs: create-release
-    permissions:
-      contents: write
+  build-linux:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install Build Dependencies (Linux)
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            libpixman-1-dev libfreetype6-dev libharfbuzz-dev zlib1g-dev \
-            libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev \
-            libfontconfig1-dev
-
-      - uses: actions/checkout@v4
-
-      - name: Checkout Aseprite Source
-        shell: bash
-        run: |
-          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch ${{ needs.create-release.outputs.release-tag }}
-
-      - name: Install Skia (Linux only)
-        working-directory: aseprite
-        shell: bash
-        run: |
-          wget https://github.com/aseprite/skia/releases/download/m124-08a5439a6b/Skia-Linux-Release-x64.zip
-          unzip Skia-Linux-Release-x64.zip -d skia
-
-      - uses: aseprite/get-ninja@main
-
-      - name: Configure CMake (Linux)
-        shell: bash
-        working-directory: aseprite
-        run: |
-          export enable_ccache=off
-          export laf_backend=skia
-          export enable_scripting=on
-          export skia_arch=x64
-
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_TESTS=OFF \
-            -DENABLE_SCRIPTING=$enable_scripting \
-            -DENABLE_CCACHE=$enable_ccache \
-            -DLAF_BACKEND=$laf_backend \
-            -DSKIA_DIR=$(realpath skia) \
-            -DOPENSSL_USE_STATIC_LIBS=ON \
-            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch)
-
-      - name: Build Aseprite
-        shell: bash
-        working-directory: aseprite
-        run: |
-          cd build && ninja
-
-      - name: Clean Up Build folder
-        working-directory: aseprite/build/bin
-        shell: bash
-        run: |
-          find . -mindepth 1 ! \( -name 'aseprite' -o -name 'data' -prune \) -exec rm -rf {} +
-
-      - name: Make portable zip
-        working-directory: aseprite/build/bin
-        run: echo '# Aseprite portable mode' > aseprite.ini
-
-      - name: Create release archive
-        working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-Linux.zip *
-
-      - name: Upload release asset
-        uses: svenstaro/upload-release-action@v2
+      - name: Fetch latest prerelease
+        id: release
+        uses: actions-ecosystem/action-get-latest-release@v1
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-Linux.zip
-          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-Linux.zip
-          tag: ${{ needs.create-release.outputs.release-tag }}
+          repo: aseprite/aseprite
+          prerelease: true
+
+      - name: Show release info
+        run: echo "Latest prerelease = ${{ steps.release.outputs.tag }}"
+
+      - name: Download source ZIP
+        uses: robinraju/release-downloader@v1.11
+        with:
+          repository: aseprite/aseprite
+          tag: ${{ steps.release.outputs.tag }}
+          fileName: "Aseprite-.*-Source\.zip"
+          regex: true
+
+      - name: Extract source
+        run: |
+          unzip Aseprite-*-Source.zip
+          mv Aseprite-* aseprite
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            cmake ninja-build g++ libc++-dev libc++abi-dev \
+            libcurl4-openssl-dev libpixman-1-dev libx11-dev \
+            libxcursor-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+
+      - name: Build Linux version
+        working-directory: aseprite
+        run: |
+          mkdir build
+          cd build
+          cmake -DLAF_BACKEND=skia \
+                -DSKIA_DIR=$HOME/deps/skia \
+                -DSKIA_LIBRARY_DIR=$HOME/deps/skia/out/Release-x64 \
+                -G Ninja ..
+          ninja
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-linux
+          path: aseprite/build/bin/*
