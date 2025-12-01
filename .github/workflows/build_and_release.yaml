@@ -20,15 +20,12 @@ jobs:
       release-tag: ${{ steps.aseprite-link.outputs.release-tag }}
     steps:
       - name: Fetch Aseprite BETA release link
-        id: aseprite-link
-        uses: a1393323447/fetch-release@main
-        with:
-          group: aseprite
-          repo: aseprite
-          # ⭐ Only prereleases (beta)
-          prerelease: true
-          # ⭐ Match only beta source zips (wildcards, not regex)
-          match: Aseprite-*beta*-Source.zip
+      id: aseprite-link
+      uses: a1393323447/fetch-release@main
+      with:
+        group: aseprite
+        repo: aseprite
+        match: 'Aseprite-.*beta.*-Source\.zip'
 
   create-release:
     name: Create Release
