@@ -1,239 +1,123 @@
-name: Linux-Build-Aseprite
+name: Build and release Aseprite (Linux only)
+
 on:
-  # schedule:
-  #   - cron:  '00 5 * * 1,3,5'
-  repository_dispatch:
-    types: [build]
+  push:
+    branches:
+      - main
+    paths:
+      - 'BuildLog.md'
   workflow_dispatch:
-    inputs:
-      version:
-        description: Enter Aseprite version to build, leave empty for latest
-        required: false
-      
-      confirm:
-          description: 'Run?'
-          required: true
-          default: 'YES!'
+
 env:
-      VERSION: ${{inputs.version}}
-jobs: 
-  setup-env:
+  BUILD_TYPE: Release
+
+jobs:
+  fetch-aseprite-info:
+    name: Set version info
     runs-on: ubuntu-latest
+    outputs:
+      download-link: 'https://github.com/aseprite/aseprite/releases/download/v1.3.16-beta2/Aseprite-v1.3.16-beta3-Source.zip'
+      release-tag: 'v1.3.16-beta3'
+    steps:
+      - name: Set version outputs
+        run: |
+          echo "download-link=https://github.com/aseprite/aseprite/releases/download/v1.3.16-beta2/Aseprite-v1.3.16-beta3-Source.zip" >> $GITHUB_OUTPUT
+          echo "release-tag=v1.3.16-beta3" >> $GITHUB_OUTPUT
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: fetch-aseprite-info
     permissions:
       contents: write
     outputs:
-      TAG: ${{ steps.tag.outputs.TAG }}
-      ACTION_ASE : ${{steps.links.outputs.action_ase}}
-      ACTION_SKIA : ${{steps.links.outputs.action_skia}}
-      # ACTION_TAG : ${{steps.links.outputs.action_tag}}
-    steps:    
-      
-      - uses: actions/checkout@v4  
-      
-      - name: make lightweight runner
-        uses: rokibhasansagar/slimhub_actions@main
-      - run: | 
-          echo "cleanup done "
-      
-      - name: Get Download Links
-        run: |
-          echo "action_ase=$(curl -sL https://api.github.com/repos/aseprite/aseprite/releases/latest | jq -r '.assets[].browser_download_url' | grep Source)" >> "$GITHUB_OUTPUT"
-          echo "action_skia=$(curl -sL https://api.github.com/repos/aseprite/skia/releases/latest | jq -r '.assets[].browser_download_url' | grep Linux-Release-x64)" >> "$GITHUB_OUTPUT"
-          echo "action_tag=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest | jq -r '.tag_name')" >> "$GITHUB_OUTPUT"
-        id: links
-
-      
-          
-      - name: Download compiled skia
-        run: |
-          wget -q -O skia.zip ${{ steps.links.outputs.action_skia }}
-          7z x skia.zip -y -oskia | grep ing
-
-      - name: Find latest aseprite version
-        id: latest
-        uses: oprypin/find-latest-tag@v1
+      download-link: ${{ needs.fetch-aseprite-info.outputs.download-link }}
+      release-tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: ncipollo/release-action@v1
         with:
-            repository: aseprite/aseprite
-            releases-only: true
-            regex: 'v\d+.\d+.\d\d'
-      
-      - name: Checkout
-        id: checkout
-        uses: actions/checkout@v4
-        with:
-            repository: aseprite/aseprite
-            ref: ${{ steps.latest.outputs.tag }}            
-      
-      - name: export tag
-        id: tag
-        run: |
-          echo "TAG=${{steps.latest.outputs.tag}}" >> "$GITHUB_OUTPUT"
+          tag: v1.3.16-beta3
+          body: Aseprite-v1.3.16-beta3 (Linux build)
+          skipIfReleaseExists: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-  building-process:
-    runs-on: ubuntu-latest
+  build-aseprite-linux:
+    name: Build Aseprite for Linux
+    needs: create-release
     permissions:
       contents: write
-    needs: [setup-env]
-    env:
-      tag: ${{ needs.setup-env.outputs.TAG }}
-      ase: ${{ needs.setup-env.outputs.ACTION_ASE }}
-    outputs:
-      VER: ${{ steps.vs.outputs.VERSION }}
-    
-    steps:
-      - name: check version 
-        id: vs
-        run: |
-            if [${{ env.VERSION == null  }}]; then
-              echo "Aseprite Version: ${{ env.tag }}"
-              echo "VERSION=${{ env.tag }}" >> "$GITHUB_OUTPUT"
-              echo "switch=false" >> "$GITHUB_OUTPUT"
-            else 
-              echo "Aseprite Version: ${{ env.VERSION }}"
-              echo "VERSION=${{ env.VERSION }}" >> "$GITHUB_OUTPUT"
-              echo "switch=true" >> "$GITHUB_OUTPUT"
-            fi      
-      
-      - name: Clone aseprite source
-        if: ${{ steps.vs.outputs.switch == 'false' }}
-        id: clone-source
-        run: |
-          wget -q -O aseprite.zip ${{ env.ase }}
-          7z x aseprite.zip -oaseprite | grep ing      
-            
-      - name: Repo clone latest version or specified version
-        id: clone
-        run: |
-            if [${{ steps.vs.outputs.switch == 'true'  }}]; then  
-              git clone --branch ${{ steps.vs.outputs.VERSION }} https://github.com/aseprite/aseprite.git 
-              cd aseprite
-              git pull
-              git submodule update --init --recursive
-            elif [${{ steps.vs.outputs.switch == 'false'  }}]; then
-              git clone https://github.com/aseprite/aseprite.git 
-              cd aseprite
-              git pull
-              git submodule update --init --recursive
-              echo "skipped specified version clone process and default latest version cloned"
-            fi
-      
-      - name: install dependencies
-        id: depend
-        run: |
-          sudo apt install -y g++ clang libc++-dev libc++abi-dev ninja-build libx11-dev libxcursor-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev libstdc++-12-dev gcc
-          
-          sudo apt update && sudo apt upgrade
-      
-      - name: Setup cmake
-        id: cmake
-        uses: jwlawson/actions-setup-cmake@v2
-
-      - name: Find path
-        id: path
-        run: echo "working_path=$(pwd)" >> "$GITHUB_OUTPUT"
-      
-      # - name: update submodules
-      #   id: submodules
-      #   run: |
-      #       cd aseprite
-      #       git pull
-      #       git submodule update --init --recursive
-        
-      - name: compiling aseprite for linux
-        id: built
-        run: |
-            cd aseprite
-            mkdir build
-            cd build
-            export CC=clang
-            export CXX=clang++
-            cmake \
-              -Wno-dev \
-              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -DCMAKE_CXX_FLAGS:STRING=-stdlib=libc++ \
-              -DCMAKE_EXE_LINKER_FLAGS:STRING=-stdlib=libc++ \
-              -DLAF_BACKEND=skia \
-              -DSKIA_DIR=${{ steps.path.outputs.working_path }}/skia \
-              -DSKIA_LIBRARY_DIR=${{ steps.path.outputs.working_path }}/skia/out/Release-x64 \
-              -DSKIA_LIBRARY=${{ steps.path.outputs.working_path }}/skia/out/Release-x64/libskia.a \
-              -DCMAKE_POLICY_VERSION_MINIMUM=3.10 \
-              -G Ninja \
-              ..
-            ninja aseprite
-      
-      - name: Create Archive
-        id: archive
-        run: |
-              cd aseprite/build
-              tar -czf Aseprite-linux-${{ steps.vs.outputs.VERSION }}.tar.gz *
-             
-      
-      - name: Upload linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: |
-            Aseprite-${{ steps.vs.outputs.VERSION }}.tar.gz
-      
-
-  # windows-build:
-  #   runs-on: windows-2022
-  #   needs: [setup-env]
-  #   steps:
-
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-      
-  #     - name: Windows Build
-  #       id: build
-  #       shell: cmd
-  #       run: call win-build.cmd
-  #       env:
-  #         ASEPRITE_VERSION: ${{ github.event.inputs.version }}
-      
-  #     - name: Archive
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: Aseprite-win-x64-${{ steps.build.outputs.ASEPRITE_VERSION }}
-  #         path: prebuilt
-  #         if-no-files-found: error
-
-  check-and-publish:         
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   
-    needs: [building-process]
-    env:
-      VISIONS: ${{ needs.building-process.outputs.VER }}
     steps:
-            
-      # - name: Generate checksum
-      #   id: checksum
-      #   uses: jmgilman/actions-generate-checksum@v1
-      #   with:
-      #     patterns: |
-      #       *.zip
-      #       *.tar.gz
-      # - uses: actions/checkout@v3
-      # - name: Download artifacts
-      #   uses: actions/download-artifact@v3
-      # - name: Get tag
-      #   run: echo "atb=$(cat release-versions/version.json)" >> "$GITHUB_OUTPUT"
-      #   id: links
+      - name: Install Linux Dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libpixman-1-dev libfreetype6-dev libharfbuzz-dev zlib1g-dev \
+            libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev \
+            libfontconfig1-dev \
+            wget unzip p7zip-full cmake ninja-build git
+      
+      - uses: actions/checkout@v4
+      
+      - name: Install Aseprite Source
+        shell: bash
+        run: |
+          # Clone specific version
+          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch v1.3.16-beta3
+      
+      - name: Install Skia for Linux
+        working-directory: aseprite
+        shell: bash
+        run: |
+          wget https://github.com/aseprite/skia/releases/download/m124-08a5439a6b/Skia-Linux-Release-x64.zip
+          unzip Skia-Linux-Release-x64.zip -d skia
+      
+      - uses: aseprite/get-ninja@main
+      
+      - name: Generating Makefiles for Linux
+        shell: bash
+        working-directory: aseprite
+        run: |
+          export enable_ccache=off
+          export laf_backend=skia
+          export enable_scripting=on
+          export skia_arch=x64
 
-
-      - name: Generate Changelog
-        run: echo "Aseprite-linux-${{ env.VISIONS }} latest built by github-actions" > ${{ github.workspace }}-release.txt
-
-      - name: GitHub Released
-        id: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: softprops/action-gh-release@v2
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=$enable_scripting \
+            -DENABLE_CCACHE=$enable_ccache \
+            -DLAF_BACKEND=$laf_backend \
+            -DSKIA_DIR=$(realpath skia) \
+            -DOPENSSL_USE_STATIC_LIBS=ON \
+            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch)
+      
+      - name: Compiling
+        shell: bash
+        working-directory: aseprite
+        run: |
+          cd build && ninja
+      
+      - name: Clean Up Build folder
+        working-directory: aseprite/build/bin
+        shell: bash
+        run: find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+      
+      - name: Make portable zip
+        working-directory: aseprite/build/bin
+        run: echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+      
+      - name: Create Linux release archive
+        working-directory: aseprite/build/bin
+        run: 7z -tzip a Aseprite-v1.3.16-beta3-Linux.zip *
+      
+      - name: Upload Linux release
+        uses: svenstaro/upload-release-action@v2
         with:
-          body_path: ${{ github.workspace }}-release.txt
-          # repository: MinhCreator/aseprite-linux64
-          name: Aseprite-${{ env.VISIONS }}
-          tag_name: ${{ env.VISIONS }}
-          files: |
-            artifact/Aseprite-linux-${{ env.VERSION }}.tar.gz
-            artifact/Aseprite-win-x64-${{ env.VERSION }}.zip
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: aseprite/build/bin/Aseprite-v1.3.16-beta3-Linux.zip
+          asset_name: Aseprite-v1.3.16-beta3-Linux.zip
+          tag: v1.3.16-beta3
