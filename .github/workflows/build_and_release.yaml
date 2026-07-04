@@ -16,13 +16,13 @@ jobs:
     name: Set version info
     runs-on: ubuntu-latest
     outputs:
-      download-link: 'https://github.com/aseprite/aseprite/releases/download/v1.3.16-beta2/Aseprite-v1.3.16-beta3-Source.zip'
+      download-link: 'https://github.com/aseprite/aseprite/releases/download/v1.3.18-beta2/Aseprite-v1.3.18-beta3-Source.zip'
       release-tag: 'v1.3.16-beta3'
     steps:
       - name: Set version outputs
         run: |
-          echo "download-link=https://github.com/aseprite/aseprite/releases/download/v1.3.16-beta2/Aseprite-v1.3.16-beta3-Source.zip" >> $GITHUB_OUTPUT
-          echo "release-tag=v1.3.16-beta3" >> $GITHUB_OUTPUT
+          echo "download-link=https://github.com/aseprite/aseprite/releases/download/v1.3.18-beta2/Aseprite-v1.3.18-beta3-Source.zip" >> $GITHUB_OUTPUT
+          echo "release-tag=v1.3.18-beta3" >> $GITHUB_OUTPUT
 
   create-release:
     name: Create Release
@@ -37,8 +37,8 @@ jobs:
       - uses: actions/checkout@v2
       - uses: ncipollo/release-action@v1
         with:
-          tag: v1.3.16-beta3
-          body: Aseprite-v1.3.16-beta3 (Linux build)
+          tag: v1.3.18-beta3
+          body: Aseprite-v1.3.18-beta3 (Linux build)
           skipIfReleaseExists: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -65,7 +65,7 @@ jobs:
         shell: bash
         run: |
           # Clone specific version
-          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch v1.3.16-beta3
+          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch v1.3.18-beta3
       
       - name: Install Skia for Linux
         working-directory: aseprite
@@ -112,12 +112,12 @@ jobs:
       
       - name: Create Linux release archive
         working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-v1.3.16-beta3-Linux.zip *
+        run: 7z -tzip a Aseprite-v1.3.18-beta3-Linux.zip *
       
       - name: Upload Linux release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: aseprite/build/bin/Aseprite-v1.3.16-beta3-Linux.zip
-          asset_name: Aseprite-v1.3.16-beta3-Linux.zip
-          tag: v1.3.16-beta3
+          file: aseprite/build/bin/Aseprite-v1.3.18-beta3-Linux.zip
+          asset_name: Aseprite-v1.3.18-beta3-Linux.zip
+          tag: v1.3.18-beta3
