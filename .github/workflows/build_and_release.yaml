@@ -1,5 +1,3 @@
-name: Build and release Aseprite (Linux only)
-
 on:
   push:
     branches:
@@ -16,13 +14,14 @@ jobs:
     name: Set version info
     runs-on: ubuntu-latest
     outputs:
-      download-link: 'https://github.com/aseprite/aseprite/releases/download/v1.3.18-beta2/Aseprite-v1.3.18-beta3-Source.zip'
-      release-tag: 'v1.3.16-beta3'
+      download-link: ${{ steps.version.outputs.download-link }}
+      release-tag: ${{ steps.version.outputs.release-tag }}
     steps:
-      - name: Set version outputs
+      - id: version
+        name: Set version outputs
         run: |
-          echo "download-link=https://github.com/aseprite/aseprite/releases/download/v1.3.18-beta2/Aseprite-v1.3.18-beta3-Source.zip" >> $GITHUB_OUTPUT
-          echo "release-tag=v1.3.18-beta3" >> $GITHUB_OUTPUT
+          echo "download-link=https://github.com/aseprite/aseprite/releases/download/v1.3.18-beta2/Aseprite-v1.3.18-beta3-Source.zip" >> "$GITHUB_OUTPUT"
+          echo "release-tag=v1.3.18-beta3" >> "$GITHUB_OUTPUT"
 
   create-release:
     name: Create Release
@@ -34,10 +33,11 @@ jobs:
       download-link: ${{ needs.fetch-aseprite-info.outputs.download-link }}
       release-tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: ncipollo/release-action@v1
+      - uses: actions/checkout@v4
+
+      - uses: ncipollo/release-action@v1.20.0
         with:
-          tag: v1.3.18-beta3
+          tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
           body: Aseprite-v1.3.18-beta3 (Linux build)
           skipIfReleaseExists: true
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -48,6 +48,7 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-latest
+
     steps:
       - name: Install Linux Dependencies
         shell: bash
@@ -58,24 +59,25 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev \
             libfontconfig1-dev \
             wget unzip p7zip-full cmake ninja-build git
-      
+
       - uses: actions/checkout@v4
-      
+
       - name: Install Aseprite Source
         shell: bash
         run: |
-          # Clone specific version
-          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch v1.3.18-beta3
-      
+          git clone --recurse-submodules -j8 \
+            https://github.com/aseprite/aseprite \
+            --branch ${{ needs.fetch-aseprite-info.outputs.release-tag }}
+
       - name: Install Skia for Linux
         working-directory: aseprite
         shell: bash
         run: |
           wget https://github.com/aseprite/skia/releases/download/m124-08a5439a6b/Skia-Linux-Release-x64.zip
           unzip Skia-Linux-Release-x64.zip -d skia
-      
+
       - uses: aseprite/get-ninja@main
-      
+
       - name: Generating Makefiles for Linux
         shell: bash
         working-directory: aseprite
@@ -94,30 +96,34 @@ jobs:
             -DSKIA_DIR=$(realpath skia) \
             -DOPENSSL_USE_STATIC_LIBS=ON \
             -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch)
-      
+
       - name: Compiling
         shell: bash
         working-directory: aseprite
         run: |
           cd build && ninja
-      
+
       - name: Clean Up Build folder
         working-directory: aseprite/build/bin
         shell: bash
-        run: find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
-      
+        run: |
+          find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+
       - name: Make portable zip
         working-directory: aseprite/build/bin
-        run: echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
-      
+        shell: bash
+        run: |
+          echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+
       - name: Create Linux release archive
         working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-v1.3.18-beta3-Linux.zip *
-      
+        run: |
+          7z -tzip a Aseprite-v1.3.18-beta3-Linux.zip *
+
       - name: Upload Linux release
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@v2.11.2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: aseprite/build/bin/Aseprite-v1.3.18-beta3-Linux.zip
           asset_name: Aseprite-v1.3.18-beta3-Linux.zip
-          tag: v1.3.18-beta3
+          tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
